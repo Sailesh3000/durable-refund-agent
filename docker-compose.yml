@@ -1,0 +1,84 @@
+# Local stack for the durable refund agent:
+#   restate        -> the Restate server (ingress 8080, admin/UI 9070, node 9071)
+#   agent          -> the Python refund agent (part 2), LLM-driven, on 9080
+#   tool-failure   -> part 3 experiment 1: flaky payment API + auto-retries, on 9081
+#   crash-demo     -> part 3 experiment 2: kill mid-flight, resume, on 9082
+#   approval-agent -> part 4: manager approval via awakeables, on 9083
+#
+#   docker compose up -d --build
+#   docker compose logs -f agent
+#
+# Register all deployments with Restate:
+#   curl localhost:9070/deployments --json '{"uri": "http://agent:9080"}'
+#   curl localhost:9070/deployments --json '{"uri": "http://tool-failure:9081"}'
+#   curl localhost:9070/deployments --json '{"uri": "http://crash-demo:9082"}'
+#   curl localhost:9070/deployments --json '{"uri": "http://approval-agent:9083"}'
+#
+# Invoke the part-2 agent:
+#   curl localhost:8080/restate/call/RefundAgent/run --json '{"order_id": "ORD-4821"}'
+#
+# UI: http://localhost:9070
+
+x-agent-env: &agent-env
+  OLLAMA_BASE_URL: http://host.docker.internal:11434/v1
+  OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:8b}
+  PYTHONUNBUFFERED: "1"
+
+services:
+  restate:
+    image: docker.restate.dev/restatedev/restate:latest
+    ports:
+      - "8080:8080"   # ingress  (invoke services / resolve awakeables)
+      - "9070:9070"   # admin API + UI
+      - "9071:9071"   # node internals
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  agent:
+    build: ./part-2-restate-agent
+    environment: *agent-env
+    ports:
+      - "9080:9080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - restate
+
+  tool-failure:
+    build: ./part-3-failure-experiments
+    command: ["python", "tool_failure.py"]
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FLAKY_FAIL_ATTEMPTS=${FLAKY_FAIL_ATTEMPTS:-2}
+    ports:
+      - "9081:9081"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - restate
+
+  crash-demo:
+    build: ./part-3-failure-experiments
+    command: ["python", "crash_recovery.py"]
+    environment:
+      - PYTHONUNBUFFERED=1
+    ports:
+      - "9082:9082"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - restate
+
+  approval-agent:
+    build: ./part-4-human-approval
+    command: ["python", "main.py"]
+    environment:
+      <<: *agent-env
+      APPROVAL_TIMEOUT_SECONDS: ${APPROVAL_TIMEOUT_SECONDS:-3600}
+      APPROVAL_THRESHOLD: ${APPROVAL_THRESHOLD:-300}
+    ports:
+      - "9083:9083"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - restate
