@@ -4,6 +4,9 @@ A customer-refund agent built twice: once as a naive Python agent, then again
 on [Restate](https://restate.dev) so it survives crashes, retries flaky
 payments, and pauses for human approval without losing its place.
 
+**Read the full walkthrough on Medium:**
+[Building Durable AI Agents with Restate: From Tool Calls to Crash Recovery](https://medium.com/@saileshhedu/building-durable-ai-agents-with-restate-from-tool-calls-to-crash-recovery-c9793e4c8014)
+
 The LLM runs locally via **Ollama** (default model: `qwen3:8b`). All order and
 payment systems are mocked, so nothing here touches real money.
 
